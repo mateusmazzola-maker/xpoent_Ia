@@ -1,0 +1,61 @@
+# Xpoent — Caddy reverse proxy com HTTPS automático
+#
+# Substitua app.xpoent.com pelo seu domínio real.
+# O Caddy obtém certificado Let's Encrypt automaticamente.
+
+app.xpoent.com {
+    # SSE precisa de buffering desabilitado
+    @sse path /api/events
+    handle @sse {
+        reverse_proxy app:3000 {
+            flush_interval -1
+        }
+    }
+
+    # Webhooks: precisam de raw body
+    @webhook path /api/whatsapp/webhook /api/billing/webhook
+    handle @webhook {
+        reverse_proxy app:3000
+    }
+
+    # Resto do tráfego
+    handle {
+        reverse_proxy app:3000 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Headers de segurança
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "camera=(), microphone=(self), geolocation=()"
+    }
+
+    # Compressão
+    encode gzip zstd
+
+    # Rate limiting suave (caddy-ratelimit plugin opcional)
+    # Tamanho máx upload (vídeos)
+    request_body {
+        max_size 100MB
+    }
+
+    log {
+        output file /data/access.log
+        format json
+    }
+}
+
+# Subdomínio para servir uploads (CDN-like)
+# Descomente e configure DNS se quiser
+#
+# cdn.xpoent.com {
+#     root * /app/uploads
+#     file_server
+#     header Cache-Control "public, max-age=31536000, immutable"
+# }

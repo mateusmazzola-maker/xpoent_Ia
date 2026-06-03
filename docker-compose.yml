@@ -1,0 +1,84 @@
+version: '3.9'
+
+services:
+  app:
+    build: .
+    container_name: xpoent_app
+    restart: unless-stopped
+    environment:
+      DB_HOST: mysql
+      DB_USER: ${DB_USER:-xpoent}
+      DB_PASS: ${DB_PASS}
+      DB_NAME: ${DB_NAME:-xpoent}
+      JWT_SECRET: ${JWT_SECRET}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      # Outras envs do .env são herdadas via env_file
+    env_file:
+      - .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - ./uploads:/app/uploads
+      - ./backups:/app/backups
+    ports:
+      - "3000:3000"
+    networks:
+      - xpoent_net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  mysql:
+    image: mysql:8.0
+    container_name: xpoent_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${DB_NAME:-xpoent}
+      MYSQL_USER: ${DB_USER:-xpoent}
+      MYSQL_PASSWORD: ${DB_PASS}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - xpoent_net
+    command: --default-authentication-plugin=mysql_native_password
+             --character-set-server=utf8mb4
+             --collation-server=utf8mb4_unicode_ci
+             --max-connections=200
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Caddy = reverse proxy + HTTPS automático via Let's Encrypt
+  # Use isso em vez de nginx se quiser HTTPS sem configurar nada
+  caddy:
+    image: caddy:2-alpine
+    container_name: xpoent_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    networks:
+      - xpoent_net
+
+networks:
+  xpoent_net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  caddy_data:
+  caddy_config:
